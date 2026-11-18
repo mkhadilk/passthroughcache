@@ -1,3 +1,3 @@
-module github.com/mkhadilk/passthroughcache/cache
+module github.com/mkhadilk/passthroughcache
 
 go 1.26.3
