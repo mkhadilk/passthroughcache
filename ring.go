@@ -65,29 +65,24 @@ func (a *ARing[T]) process() {
 	for {
 		if rr, ok := <-a.requestChannel; ok {
 
-			vl, err := a.locateInRing(aringbuffer, rr.id)
-
 			switch rr.atype {
 			case getRequest:
+				vl, err := a.locateInRing(aringbuffer, rr.id)
 				if err != nil {
 					t, ferr := a.fetchHandler(rr.id)
 					if ferr == nil {
 						aringbuffer.Value = t.(T)
 						vl = t.(T)
-					} else {
-						aringbuffer.Value = nil
 					}
 				}
 				rr.resp <- vl
 				aringbuffer = aringbuffer.Next()
 			case refreshRequest:
+				var gotit T
 				t, ferr := a.fetchHandler(rr.id)
 				if ferr == nil {
-					aringbuffer.Value = t
-				} else {
-					aringbuffer.Value = nil
+					gotit = a.locateAndUpdateInRing(aringbuffer, rr.id, t.(T))
 				}
-				gotit := aringbuffer.Value.(T)
 				rr.resp <- gotit
 			}
 		} else {
@@ -116,6 +111,25 @@ func (a *ARing[T]) locateInRing(aring *ring.Ring, id string) (T, error) {
 		aring = aring.Next()
 	}
 	return t, errors.New("Not found")
+}
+
+func (a *ARing[T]) locateAndUpdateInRing(aring *ring.Ring, id string, newval T) T {
+	for i := 0; i < aring.Len(); i++ {
+		if aring.Value != nil {
+			idb, ok := aring.Value.(Ideable)
+			if ok {
+				if idb.GetId() == id {
+					aring.Value = newval
+					gotit := aring.Value.(T)
+					return gotit
+				}
+			}
+
+		}
+		aring = aring.Next()
+	}
+	aring.Value = newval
+	return aring.Value.(T)
 }
 
 func (a *ARing[T]) Get(id string) (res T, err error) {
