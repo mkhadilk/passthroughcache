@@ -50,7 +50,6 @@ func AddListner(db *mongo.Database, collectionname string, handlechange func(cha
 			log.Printf("Failed to decode event: %v", err)
 			continue
 		}
-		log.Printf("Changed %+v", event)
 		handlechange(event.DocumentKey.ID.(string))
 	}
 
