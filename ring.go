@@ -3,7 +3,6 @@ package cache
 import (
 	"container/ring"
 	"errors"
-	"fmt"
 )
 
 type requestType int
@@ -18,18 +17,24 @@ type Ideable interface {
 }
 
 type reQuest[T any] struct {
-	atype requestType
-	id    string
-	resp  chan T
+	atype   requestType
+	id      string
+	resp    chan T
+	errchan chan error
 }
 
 func (r *reQuest[T]) readResponse() (res T, err error) {
-	rs, ok := <-r.resp
-	if ok {
-		return rs, nil
-	} else {
-		return rs, fmt.Errorf("Can not get response for entity id: %s", r.id)
+	select {
+	case rs, ok := <-r.resp:
+		if ok {
+			res = rs
+		}
+	case e, ok := <-r.errchan:
+		if ok {
+			err = e
+		}
 	}
+	return
 }
 
 type ARing[T any] struct {
@@ -73,17 +78,27 @@ func (a *ARing[T]) process() {
 					if ferr == nil {
 						aringbuffer.Value = t.(T)
 						vl = t.(T)
+						err = nil
+					} else {
+						err = ferr
 					}
 				}
-				rr.resp <- vl
+				if err != nil {
+					rr.errchan <- err
+				} else {
+					rr.resp <- vl
+				}
 				aringbuffer = aringbuffer.Next()
 			case refreshRequest:
 				var gotit T
 				t, ferr := a.fetchHandler(rr.id)
 				if ferr == nil {
 					gotit = a.locateAndUpdateInRing(aringbuffer, rr.id, t.(T))
+					rr.resp <- gotit
+				} else {
+					rr.errchan <- ferr
 				}
-				rr.resp <- gotit
+
 			}
 		} else {
 			break
@@ -138,6 +153,7 @@ func (a *ARing[T]) Get(id string) (res T, err error) {
 		newr.atype = getRequest
 		newr.id = id
 		newr.resp = make(chan T, 1)
+		newr.errchan = make(chan error, 1)
 		a.requestChannel <- newr
 		res, err = newr.readResponse()
 	} else {
@@ -151,6 +167,7 @@ func (a *ARing[T]) Refresh(id string) {
 		newr.atype = refreshRequest
 		newr.id = id
 		newr.resp = make(chan T, 1)
+		newr.errchan = make(chan error, 1)
 		a.requestChannel <- newr
 		newr.readResponse()
 	}
